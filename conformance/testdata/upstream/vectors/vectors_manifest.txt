@@ -1,0 +1,19 @@
+# Conformance vectors (format/vectors.md). Regenerate with:
+#   go test ./format -run TestConformanceVectors -update
+# name  xxhash64(file)  format.ContentHash
+version 2
+indexed_torn 6c38c844946205e0 91e8c6cec870044e
+structure_edge_padding bab45bde3f11b29d 112eca7e745f2230
+structure_full d547bd7351d40fcd d9013d50fa9825cf
+world_collections 69028fbe1df0331e b7008cb59ec12d52
+world_dedup_morton 2db8981cd6be53b2 ef62ac7b019e49be
+world_default_biome 95238f58589644ec 6f3a8027be5b4bda
+world_empty_chunk 1bba1f960ce9d7d6 4fefb9dd3629f90e
+world_layers 915ad3ad53640f25 d5108c2981343ead
+world_light 55464b8d36b5c428 1113eb0c82dab5d4
+world_minimal d5930d68b2ae0e7d 91e8c6cec870044e
+world_palette_256 29a8c633a80fcb88 fb4a4515dab10a31
+world_palette_257 459c80613071f8e6 95ba142a490128d1
+world_preserved 57b8c4bcb9693338 6e69516ad3f7e38d
+world_stats 54880df2e6e3aaf6 91e8c6cec870044e
+world_waterlogged ae090f833d8fb7fa 28e89decf80b9b4a

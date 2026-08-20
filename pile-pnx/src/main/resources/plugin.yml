@@ -1,0 +1,8 @@
+name: pile
+main: net.justmcpe.pile.pnx.PilePlugin
+version: 0.1.0
+api: 3.0.0
+load: STARTUP
+author: Staticius
+description: pile world format provider
+prefix: Pile
