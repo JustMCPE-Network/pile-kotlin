@@ -96,7 +96,12 @@ public open class PileLevelProvider(
             log.info("opened template instance {} ({} shared columns)", path, base.columns.size)
         } else if (isIndexedFile(dimensionFile(Path.of(path), level.dimensionData))) {
             val file = dimensionFile(Path.of(path), level.dimensionData)
-            val handle = IndexedPile.open(file, DecodeOptions(openOptions.maxDecodedBytes), openOptions.readOnly)
+            val handle = IndexedPile.open(
+                file,
+                DecodeOptions(openOptions.maxDecodedBytes),
+                openOptions.readOnly,
+                openOptions.compression
+            )
             indexed = handle
             settingsBytes = handle.settings
             userDataBytes = handle.userData
@@ -502,7 +507,11 @@ public open class PileLevelProvider(
         }
         val file = dimensionFile(Path.of(path), level.dimensionData)
         if (isIndexedFile(file)) {
-            val handle = IndexedPile.open(file, DecodeOptions(openOptions.maxDecodedBytes))
+            val handle = IndexedPile.open(
+                file,
+                DecodeOptions(openOptions.maxDecodedBytes),
+                compression = openOptions.compression
+            )
             indexed = handle
             snapshotter = ColumnSnapshot(handle.blockStates, handle.biomes, openOptions)
             converter = ChunkConverter(handle.blockStates, handle.biomes)
@@ -617,7 +626,11 @@ public open class PileLevelProvider(
             PileWriter.writeIndexed(file, updated, openOptions.compression)
             world = null
             dirtyColumns.clear()
-            val reopened = IndexedPile.open(file, DecodeOptions(openOptions.maxDecodedBytes))
+            val reopened = IndexedPile.open(
+                file,
+                DecodeOptions(openOptions.maxDecodedBytes),
+                compression = openOptions.compression
+            )
             indexed = reopened
             snapshotter = ColumnSnapshot(reopened.blockStates, reopened.biomes, openOptions)
             converter = ChunkConverter(reopened.blockStates, reopened.biomes)

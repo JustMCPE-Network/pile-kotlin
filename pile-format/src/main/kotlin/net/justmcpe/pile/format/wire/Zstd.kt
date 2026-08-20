@@ -11,6 +11,21 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 
 internal object ZstdCodec {
+    /**
+     * Trains a shared dictionary from decompressed record bodies. Training can refuse a sample set
+     * (highly repetitive input, too little material), and compaction must never fail on that, so
+     * every failure is "no dictionary" rather than an error.
+     */
+    fun train(samples: List<ByteArray>, dictSize: Int): ByteArray? {
+        return try {
+            val trainer = com.github.luben.zstd.ZstdDictTrainer(samples.sumOf { it.size }, dictSize)
+            for (sample in samples) if (!trainer.addSample(sample)) return null
+            trainer.trainSamples()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun compress(body: ByteArray, level: Compression, dictionary: ByteArray? = null, fast: Boolean = false): ByteArray {
         require(level != Compression.NONE)
         ZstdCompressCtx().use { ctx ->

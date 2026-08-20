@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [ master, main ]
   pull_request:
-    branches: [master, main]
+    branches: [ master, main ]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java: ["21"]
+        java: [ "21" ]
 
     steps:
       - name: Checkout

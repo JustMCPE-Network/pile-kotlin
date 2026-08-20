@@ -209,4 +209,65 @@ class IndexedTest {
             dir.toFile().deleteRecursively()
         }
     }
+
+    private fun wideWorld(columns: Int): World {
+        val base = PileReader.readWorld(Files.readAllBytes(vectors.resolve("world_palette_257.pile")))
+        val template = base.columns.single()
+        val spread = (0 until columns).map { i ->
+            Column(
+                i % 16, i / 16, template.minSection, template.sections, template.biomes, null,
+                emptyList(), emptyList(), 0, emptyList(), ByteArray(0),
+            )
+        }
+        return World(base.blockVersion, base.settings, base.userData, base.blockStates, base.biomes, spread)
+    }
+
+    @Test
+    fun `compaction trains a shared dictionary on a large compressed file`() {
+        val world = wideWorld(32)
+        val dir = Files.createTempDirectory("pile-dict")
+        try {
+            val file = dir.resolve("overworld.pile")
+            IndexedPile.create(file, world.blockVersion, Compression.DEFAULT).use { pile ->
+                pile.setMeta(world.settings, world.userData)
+                for (c in world.columns) pile.store(c, world.blockStates, world.biomes)
+                repeat(2) { for (c in world.columns) pile.store(c, world.blockStates, world.biomes) }
+                pile.checkpoint()
+                assertTrue(!pile.hasDictionary)
+                pile.compact()
+                assertTrue(pile.hasDictionary, "32 records of 13KB each are past the training floor")
+                assertEquals(world.columns.size, pile.columnCount)
+                val section = pile.column(0, 0)!!.sections.first { it != null }!!
+                assertEquals(257, section.layers[0].palette.size)
+            }
+            IndexedPile.open(file, readOnly = true).use { pile ->
+                assertTrue(pile.hasDictionary)
+                assertEquals(world.columns.size, pile.columnCount)
+            }
+            val eager = PileReader.readWorld(Files.readAllBytes(file))
+            assertEquals(PileWriter.contentHash(world), PileWriter.contentHash(eager))
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a small world compacts without a dictionary`() {
+        val solid = PileReader.readWorld(Files.readAllBytes(vectors.resolve("world_dedup_morton.pile")))
+        val dir = Files.createTempDirectory("pile-dict")
+        try {
+            val file = dir.resolve("overworld.pile")
+            IndexedPile.create(file, solid.blockVersion, Compression.DEFAULT).use { pile ->
+                for (c in solid.columns) pile.store(c, solid.blockStates, solid.biomes)
+                pile.compact()
+                assertTrue(!pile.hasDictionary)
+            }
+            assertEquals(
+                PileWriter.contentHash(solid),
+                PileWriter.contentHash(PileReader.readWorld(Files.readAllBytes(file)))
+            )
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
 }

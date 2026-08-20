@@ -1,5 +1,7 @@
 package net.justmcpe.pile.format
 
+import net.justmcpe.pile.format.IndexedPile.Companion.DICT_MIN_BYTES
+import net.justmcpe.pile.format.IndexedPile.Companion.DICT_MIN_SAMPLES
 import net.justmcpe.pile.format.wire.*
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -21,7 +23,11 @@ public class IndexedPile private constructor(
     private var channel: FileChannel,
     private val readOnly: Boolean,
     private val options: DecodeOptions,
+    level: Compression,
 ) : AutoCloseable {
+    /** The zstd effort every frame this handle writes uses, as upstream carries its open options. */
+    private val level: Compression = if (level == Compression.NONE) Compression.DEFAULT else level
+
     private class Ref(val off: Long, val length: Int, val hash: Long)
 
     private val lock = Any()
@@ -60,6 +66,7 @@ public class IndexedPile private constructor(
     private var directoryBudget = 0L
 
     public val storeLight: Boolean get() = flags and Flags.STORE_LIGHT != 0
+    public val hasDictionary: Boolean get() = synchronized(lock) { dictionary != null }
     private val compressed: Boolean get() = flags and Flags.UNCOMPRESSED == 0
 
     public val blockStates: List<BlockState> get() = synchronized(lock) { states.toList() }
@@ -136,7 +143,7 @@ public class IndexedPile private constructor(
             RecordEncoder.encode(record, prepared, blockRemap, biomeRemap, -1, storeLight) { w, blob -> w.raw(blob) }
             val body = record.toByteArray()
             if (body.size > Limits.MAX_FRAME) throw InvalidContentException("record frame is ${body.size} bytes, limit ${Limits.MAX_FRAME}")
-            val stored = if (compressed) ZstdCodec.compress(body, Compression.DEFAULT, dictionary) else body
+            val stored = if (compressed) ZstdCodec.compress(body, level, dictionary) else body
             val ref = Ref(fileEnd, stored.size, XxHash.hash(stored))
             writeAt(ref.off, stored)
             fileEnd += stored.size
@@ -237,7 +244,7 @@ public class IndexedPile private constructor(
             poff = ref.off
         }
         val dirBody = dir.toByteArray()
-        val dirStored = if (compressed) ZstdCodec.compress(dirBody, Compression.DEFAULT) else dirBody
+        val dirStored = if (compressed) ZstdCodec.compress(dirBody, level) else dirBody
         val dirOff = fileEnd
         writeAt(dirOff, dirStored)
         channel.force(true)
@@ -266,23 +273,39 @@ public class IndexedPile private constructor(
     }
 
     /**
-     * Rewrites the live records into a fresh garbage-free file, atomically renames it over this
-     * one and reopens. The whole world is decoded for the duration, as the solid writer would.
+     * Rewrites the live records into a fresh garbage-free file, one column at a time in Morton
+     * order, atomically renames it over this one and reopens. On a compressed file with enough
+     * material a shared dictionary is trained first and every record, palette and meta frame of
+     * the new file is compressed with it; a refused training simply compacts without one.
      */
     public fun compact(): Unit = synchronized(lock) {
         checkOpen()
         checkWritable()
         checkpointLocked()
-        val columns = directory.keys.map { k ->
-            columnLocked((k shr 32).toInt(), k.toInt()) ?: corrupt("directory entry vanished during compaction")
+        val keys = directory.keys.sortedWith { a, b ->
+            Morton.compare(Morton.key((a shr 32).toInt(), a.toInt()), Morton.key((b shr 32).toInt(), b.toInt()))
         }
-        val world = World(blockVersion, settingsBytes, userDataBytes, ArrayList(states), ArrayList(biomeNames), columns)
+        val trained = if (compressed) trainDictionaryLocked(keys) else null
+        val statesView = ArrayList(states)
+        val biomesView = ArrayList(biomeNames)
         val temp = Files.createTempFile(path.toAbsolutePath().parent, path.fileName.toString(), ".compact")
         try {
-            Files.write(
-                temp,
-                IndexedEncoder.encode(world, if (compressed) Compression.DEFAULT else Compression.NONE, storeLight)
-            )
+            Files.deleteIfExists(temp)
+            val fresh = create(temp, blockVersion, if (compressed) level else Compression.NONE, storeLight)
+            try {
+                trained?.let(fresh::installDictionary)
+                for (k in keys) {
+                    val column = columnLocked((k shr 32).toInt(), k.toInt())
+                        ?: corrupt("directory entry vanished during compaction")
+                    fresh.store(column, statesView, biomesView)
+                }
+                fresh.setMeta(settingsBytes, userDataBytes)
+                fresh.checkpoint()
+            } finally {
+                fresh.close()
+            }
+            val permissions = runCatching { Files.getPosixFilePermissions(path) }.getOrNull()
+            permissions?.let { Files.setPosixFilePermissions(temp, it) }
             channel.close()
             try {
                 Files.move(temp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
@@ -294,6 +317,57 @@ public class IndexedPile private constructor(
         }
         channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE)
         loadLocked()
+    }
+
+    /**
+     * Samples the live records evenly across the world — Morton order clusters neighbours, so a
+     * prefix would train on one corner — and trains when at least [DICT_MIN_SAMPLES] records give
+     * [DICT_MIN_BYTES] of material, exactly the reference implementation's thresholds.
+     */
+    private fun trainDictionaryLocked(keys: List<Long>): ByteArray? {
+        if (keys.size < DICT_MIN_SAMPLES) return null
+        val stride = if (keys.size <= DICT_MAX_SAMPLES) 1 else (keys.size + DICT_MAX_SAMPLES - 1) / DICT_MAX_SAMPLES
+        val samples = ArrayList<ByteArray>(minOf(keys.size, DICT_MAX_SAMPLES))
+        var total = 0
+        var i = 0
+        while (i < keys.size && total < DICT_MAX_SAMPLE_BYTES && samples.size < DICT_MAX_SAMPLES) {
+            val ref = directory.getValue(keys[i])
+            val stored = readAt(ref.off, ref.length)
+            if (XxHash.hash(stored) == ref.hash) {
+                var body = ZstdCodec.decompress(stored, 0, stored.size, dictionary, Limits.MAX_FRAME)
+                if (body.size > DICT_SAMPLE_BYTES) body = body.copyOf(DICT_SAMPLE_BYTES)
+                samples.add(body)
+                total += body.size
+            }
+            i += stride
+        }
+        if (samples.size < DICT_MIN_SAMPLES || total < DICT_MIN_BYTES) return null
+        val trained = ZstdCodec.train(samples, DICT_TARGET_BYTES) ?: return null
+        // A dictionary earns its place by shrinking the records it was trained on; content that
+        // already compresses well can come out marginally larger with one, and a compaction must
+        // never grow the file it was asked to shrink.
+        var withDict = trained.size.toLong()
+        var without = 0L
+        for (sample in samples) {
+            withDict += ZstdCodec.compress(sample, level, trained).size
+            without += ZstdCodec.compress(sample, level).size
+        }
+        return if (withDict < without) trained else null
+    }
+
+    /**
+     * Installs a trained dictionary into a fresh file: the dictionary frame itself is stored
+     * without it (readers meet it before they can load it, format.md §5.1), every later frame is
+     * compressed with it.
+     */
+    internal fun installDictionary(trained: ByteArray): Unit = synchronized(lock) {
+        checkOpen()
+        checkWritable()
+        check(directory.isEmpty() && dictRef == null) { "a dictionary installs into a fresh file only" }
+        if (trained.size > Limits.MAX_DICT) return
+        dictRef = appendFrame(trained)
+        dictionary = trained
+        dirDirty = true
     }
 
     private fun columnLocked(x: Int, z: Int): Column? {
@@ -342,7 +416,7 @@ public class IndexedPile private constructor(
 
     private fun appendFrame(body: ByteArray): Ref {
         if (body.size > Limits.MAX_FRAME) throw InvalidContentException("indexed frame is ${body.size} bytes, limit ${Limits.MAX_FRAME}")
-        val stored = if (compressed) ZstdCodec.compress(body, Compression.DEFAULT, dictionary) else body
+        val stored = if (compressed) ZstdCodec.compress(body, level, dictionary) else body
         val ref = Ref(fileEnd, stored.size, XxHash.hash(stored))
         writeAt(ref.off, stored)
         fileEnd += stored.size
@@ -590,6 +664,12 @@ public class IndexedPile private constructor(
     private fun key(x: Int, z: Int): Long = (x.toLong() shl 32) or (z.toLong() and 0xFFFF_FFFFL)
 
     public companion object {
+        private const val DICT_MIN_SAMPLES = 16
+        private const val DICT_MIN_BYTES = 64 shl 10
+        private const val DICT_MAX_SAMPLES = 256
+        private const val DICT_MAX_SAMPLE_BYTES = 8 shl 20
+        private const val DICT_SAMPLE_BYTES = DICT_MAX_SAMPLE_BYTES / DICT_MAX_SAMPLES
+        private const val DICT_TARGET_BYTES = 16 shl 10
         private val HEADER_MAGIC =
             byteArrayOf('P'.code.toByte(), 'I'.code.toByte(), 'L'.code.toByte(), 'E'.code.toByte())
         private val FOOTER_MAGIC =
@@ -598,14 +678,15 @@ public class IndexedPile private constructor(
         public fun open(
             path: Path,
             options: DecodeOptions = DecodeOptions.DEFAULT,
-            readOnly: Boolean = false
+            readOnly: Boolean = false,
+            compression: Compression = Compression.DEFAULT,
         ): IndexedPile {
             val channel = if (readOnly) {
                 FileChannel.open(path, StandardOpenOption.READ)
             } else {
                 FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE)
             }
-            val pile = IndexedPile(path, channel, readOnly, options)
+            val pile = IndexedPile(path, channel, readOnly, options, compression)
             try {
                 synchronized(pile.lock) { pile.loadLocked() }
             } catch (e: Throwable) {
@@ -626,7 +707,7 @@ public class IndexedPile private constructor(
             val empty = World(blockVersion, ByteArray(0), ByteArray(0), emptyList(), emptyList(), emptyList())
             Files.createDirectories(path.toAbsolutePath().parent)
             Files.write(path, IndexedEncoder.encode(empty, compression, storeLight))
-            return open(path)
+            return open(path, compression = compression)
         }
     }
 }

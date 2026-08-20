@@ -657,10 +657,12 @@ with inline section blobs, no position, no default-biome elision; every frame's 
 dictionaries are honoured. Flags `Stats` and `DefaultBiome` MUST be clear, and an empty palette segment is rejected
 (§5.3).
 
-Writing (`wire/IndexedEncoder.kt`): one checkpoint, palettes in first-seen order, every biome section stored. Append
-re-frames every column as a new checkpoint and requires unchanged palettes and metadata; anything else is a full
-rewrite. Indexed bytes are history-dependent and deliberately uncanonical; content identity is still §9's, and the
-conformance suite pins it against upstream's `indexed_full` and `indexed_torn` vectors.
+Writing (`wire/IndexedEncoder.kt`, `IndexedPile`): one checkpoint, palettes in first-seen order, every biome section
+stored. A handle appends one record frame per store, checkpoints under §5.6's fsync ordering, and compaction rewrites
+the live set in Morton order — training a shared dictionary from the record bodies when there is enough material and it
+measurably wins, exactly the reference implementation's thresholds. Indexed bytes are history-dependent and deliberately
+uncanonical; content identity is still §9's, and the conformance suite pins it against upstream's
+`indexed_full` and `indexed_torn` vectors.
 
 ---
 

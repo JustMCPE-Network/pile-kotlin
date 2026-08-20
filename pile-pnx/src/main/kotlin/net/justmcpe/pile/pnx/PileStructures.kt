@@ -1,5 +1,6 @@
 package net.justmcpe.pile.pnx
 
+import net.justmcpe.pile.format.BlockState
 import net.justmcpe.pile.format.PileReader
 import net.justmcpe.pile.format.Structure
 import net.justmcpe.pile.pnx.convert.BlockStates
@@ -28,13 +29,12 @@ public object PnxStructures {
 
         fun stateHash(ref: Int): Int = BlockStates.resolve(structure.blockStates[ref]).blockStateHash()
         fun blockRef(x: Int, y: Int, z: Int): Int {
-            val cx = x / 16;
-            val cy = y / 16;
+            val cx = x / 16
+            val cy = y / 16
             val cz = z / 16
             val cell = structure.cells[(cx * nz + cz) * ny + cy] ?: return 0
-            val section = cell
             val index = ((x and 15) shl 8) or ((z and 15) shl 4) or (y and 15)
-            val ref = section.layers[0][index]
+            val ref = cell.layers[0][index]
             val hash = stateHash(ref)
             val paletteIndex = paletteByHash.getOrPut(hash) { palette.add(hash); palette.lastIndex }
             require(paletteIndex < 255) { "PNX structure palette supports at most 255 states" }
@@ -58,14 +58,14 @@ public object PnxStructures {
     public fun fromPileNative(structure: Structure): PnxNativeStructure {
         val volume = Math.multiplyExact(Math.multiplyExact(structure.sizeX, structure.sizeY), structure.sizeZ)
         val layers = Array(2) { ArrayList<IntTag>(volume) }
-        val palette = ArrayList<org.powernukkitx.nbt.tag.CompoundTag>()
-        val paletteByState = HashMap<net.justmcpe.pile.format.BlockState, Int>()
-        val nx = (structure.sizeX + 15) / 16;
-        val ny = (structure.sizeY + 15) / 16;
+        val palette = ArrayList<CompoundTag>()
+        val paletteByState = HashMap<BlockState, Int>()
+        val nx = (structure.sizeX + 15) / 16
+        val ny = (structure.sizeY + 15) / 16
         val nz = (structure.sizeZ + 15) / 16
         fun paletteIndex(ref: Int): Int = paletteByState.getOrPut(structure.blockStates[ref]) {
             palette.add(
-                org.powernukkitx.nbt.tag.CompoundTag.fromNetwork(
+                CompoundTag.fromNetwork(
                     BlockStates.tagOf(
                         structure.blockStates[ref].name,
                         structure.blockStates[ref].properties
@@ -75,8 +75,8 @@ public object PnxStructures {
             palette.lastIndex
         }
         for (x in 0 until structure.sizeX) for (y in 0 until structure.sizeY) for (z in 0 until structure.sizeZ) {
-            val cx = x / 16;
-            val cy = y / 16;
+            val cx = x / 16
+            val cy = y / 16
             val cz = z / 16
             val cell = structure.cells[(cx * nz + cz) * ny + cy]
             val index = ((x and 15) shl 8) or ((z and 15) shl 4) or (y and 15)

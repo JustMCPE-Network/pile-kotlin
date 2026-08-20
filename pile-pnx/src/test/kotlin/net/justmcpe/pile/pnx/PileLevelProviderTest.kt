@@ -3,6 +3,8 @@ package net.justmcpe.pile.pnx
 import net.justmcpe.pile.format.Compression
 import net.justmcpe.pile.format.PileReader
 import net.justmcpe.pile.format.PileWriter
+import net.justmcpe.pile.format.WorldSettings
+import net.justmcpe.pile.format.nbt.NbtCompound
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -142,20 +144,20 @@ class PileLevelProviderTest {
         `when`(level.dimensionData).thenReturn(DimensionEnum.OVERWORLD.dimensionData)
 
         val provider = PileLevelProvider(level, temp.toString())
-        provider.setSeed(987654321L)
-        provider.setNoSleepNight(7)
+        provider.seed = 987654321L
+        provider.noSleepNight = 7
         provider.getGamerules().setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false)
         provider.setWorldDynamicProperties(CompoundTag().putString("example", "persisted"))
         provider.saveLevelData()
         provider.close()
 
-        val savedSettings = net.justmcpe.pile.format.WorldSettings.parse(
-            net.justmcpe.pile.format.PileReader.readWorld(Files.readAllBytes(temp.resolve("overworld.pile"))).settings,
+        val savedSettings = WorldSettings.parse(
+            PileReader.readWorld(Files.readAllBytes(temp.resolve("overworld.pile"))).settings,
         )
         assertNotNull(savedSettings.extra["pnx_gamerules"])
         assertEquals(
             true,
-            (savedSettings.extra["pnx_gamerules"] as net.justmcpe.pile.format.nbt.NbtCompound).keys.contains(GameRule.DO_DAYLIGHT_CYCLE.getName())
+            (savedSettings.extra["pnx_gamerules"] as NbtCompound).keys.contains(GameRule.DO_DAYLIGHT_CYCLE.getName())
         )
         val reopened = PileLevelProvider(level, temp.toString())
         assertEquals(987654321L, reopened.seed)
@@ -176,8 +178,8 @@ class PileLevelProviderTest {
         val chunk = provider.getChunk(0, 0, false)!!
         chunk.setBlockState(0, -64, 0, BlockDirt.PROPERTIES.defaultState)
         provider.updateLevelName("saved-settings")
-        provider.setTime(1234)
-        provider.setSpawn(Vector3(4.0, 70.0, -2.0))
+        provider.time = 1234
+        provider.spawn = Vector3(4.0, 70.0, -2.0)
         provider.saveChunks()
         provider.close()
 
@@ -239,7 +241,7 @@ class PileLevelProviderTest {
     @Test
     fun `pile structures convert to native PNX structures`() {
         val path = Path.of("..", "conformance", "testdata", "upstream", "vectors", "structure_full.pile")
-        val structure = net.justmcpe.pile.format.PileReader.readStructure(Files.readAllBytes(path))
+        val structure = PileReader.readStructure(Files.readAllBytes(path))
         val native = PnxStructures.fromPileNative(structure)
         assertEquals(structure.sizeX, native.sizeX)
         assertEquals(structure.sizeY, native.sizeY)

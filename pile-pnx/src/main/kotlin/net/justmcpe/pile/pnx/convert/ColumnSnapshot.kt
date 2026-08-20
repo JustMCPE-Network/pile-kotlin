@@ -36,7 +36,7 @@ internal class ColumnSnapshot(
         chunk.batchProcess { unsafe ->
             val dimension = unsafe.dimensionData
             val minSection = dimension.minSectionY
-            val sections = arrayOfNulls<net.justmcpe.pile.format.Section>(dimension.chunkSectionCount)
+            val sections = arrayOfNulls<Section>(dimension.chunkSectionCount)
             val biomeStorages = Array(dimension.chunkSectionCount) { Storage.uniform(biome("minecraft:plains")) }
             val lights = arrayOfNulls<LightData>(dimension.chunkSectionCount)
             var anyLight = false
@@ -59,7 +59,7 @@ internal class ColumnSnapshot(
                 while (layers.isNotEmpty() && layers.last().isUniform && paletteStates[layers.last().palette[0]].isAir) layers.removeAt(
                     layers.lastIndex
                 )
-                if (layers.isNotEmpty()) sections[i] = net.justmcpe.pile.format.Section(layers)
+                if (layers.isNotEmpty()) sections[i] = Section(layers)
 
                 val biomeRefs = IntArray(4096)
                 if (!options.skipBiomes) for (x in 0 until 16) for (z in 0 until 16) for (y in 0 until 16) {

@@ -46,8 +46,9 @@ a `DecodeBudgetException`, not a corruption verdict.
   vector to its exact bytes, and the
   `SkipBiomes` and stats options reproduce their golden files the same way
 - indexed mode as `IndexedPile`: the directory and palettes resident, columns decoded one frame at a time, per-chunk
-  `store`, checkpoints, torn-write recovery, shared dictionaries, compaction. A 59,740-column world opens in under 100
-  ms on about 13 MB of heap
+  `store`, checkpoints, torn-write recovery, compaction with shared-dictionary training. The dictionary is kept only
+  when it measurably shrinks the records it trained on, so a compaction never grows the file. A 59,740-column world
+  opens in under 100 ms on about 13 MB of heap
 - structures: read, write, `rotate` with the common Bedrock direction properties, padding cleared, canonical orders kept
 - templates and instances: one decoded base world, copy-on-write in-memory levels that evaporate on close or persist
   with `saveAs`
@@ -60,8 +61,7 @@ a `DecodeBudgetException`, not a corruption verdict.
 
 Out of scope: block-state upgrades across Minecraft versions beyond what the runtime's own updater performs (keep worlds
 current with upstream's
-`pile upgrade`), mcdb conversion (upstream's CLI does it), player data (the format itself excludes it), dictionary
-training.
+`pile upgrade`), mcdb conversion (upstream's CLI does it), player data (the format itself excludes it).
 
 ## Notes
 

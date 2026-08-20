@@ -111,11 +111,40 @@ class CliRoundTripTest {
         val dir = Files.createTempDirectory("pile-cli")
         try {
             val file = dir.resolve("overworld.pile")
-            net.justmcpe.pile.format.IndexedPile.create(file, world.blockVersion).use { pile ->
+            IndexedPile.create(file, world.blockVersion).use { pile ->
                 pile.setMeta(world.settings, world.userData)
                 for (c in world.columns) pile.store(c, world.blockStates, world.biomes)
                 pile.checkpoint()
                 for (c in world.columns) pile.store(c, world.blockStates, world.biomes)
+            }
+            verify(file)
+            val (out, code) = run(cli!!, "hash", dir.toString())
+            assertEquals(0, code, out)
+            assertTrue(out.contains(XxHash.hex(PileWriter.contentHash(world))), out)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a compacted file with a trained dictionary verifies under the reference CLI`() {
+        val base = PileReader.readWorld(Files.readAllBytes(Fixtures.vectors.resolve("world_palette_257.pile")))
+        val template = base.columns.single()
+        val columns = (0 until 32).map { i ->
+            Column(
+                i % 16, i / 16, template.minSection, template.sections, template.biomes, null,
+                emptyList(), emptyList(), 0, emptyList(), ByteArray(0),
+            )
+        }
+        val world = World(base.blockVersion, base.settings, base.userData, base.blockStates, base.biomes, columns)
+        val dir = Files.createTempDirectory("pile-cli")
+        try {
+            val file = dir.resolve("overworld.pile")
+            IndexedPile.create(file, world.blockVersion, Compression.DEFAULT).use { pile ->
+                pile.setMeta(world.settings, world.userData)
+                for (c in world.columns) pile.store(c, world.blockStates, world.biomes)
+                pile.compact()
+                assertTrue(pile.hasDictionary, "training material was sufficient")
             }
             verify(file)
             val (out, code) = run(cli!!, "hash", dir.toString())

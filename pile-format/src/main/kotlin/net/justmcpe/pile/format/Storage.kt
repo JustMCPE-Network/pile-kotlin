@@ -1,13 +1,13 @@
 package net.justmcpe.pile.format
 
+import net.justmcpe.pile.format.wire.IntIntMap
+
 /**
  * One 16³ paletted storage: a block layer or a section's biomes. [palette] holds references into the
  * world's block state or biome list; [indices], when present, holds 4096 local palette indices in the
  * order of format.md §1. A null [indices] means every position holds `palette[0]`.
  */
-public class Storage(palette: IntArray, indices: ShortArray?) {
-    public val palette: IntArray = palette
-    public val indices: ShortArray? = indices
+public class Storage(public val palette: IntArray, public val indices: ShortArray?) {
 
     init {
         require(palette.isNotEmpty()) { "a storage needs at least one palette entry" }
@@ -28,7 +28,7 @@ public class Storage(palette: IntArray, indices: ShortArray?) {
         /** Builds a storage from 4096 global references, compacting the palette to the references used. */
         public fun of(refs: IntArray): Storage {
             require(refs.size == Limits.STORAGE_SIZE)
-            val seen = net.justmcpe.pile.format.wire.IntIntMap(16)
+            val seen = IntIntMap(16)
             var palette = IntArray(8)
             var paletteSize = 0
             val idx = ShortArray(Limits.STORAGE_SIZE)

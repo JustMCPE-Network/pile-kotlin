@@ -66,7 +66,8 @@ internal object StructureEncoder {
                 be.z,
                 RecordEncoder.canonicalNbt(be.nbt, "structure block entity at (${be.x},${be.y},${be.z})")
             )
-        }.sortedWith(compareBy<PreparedEntry>(
+        }.sortedWith(
+            compareBy<PreparedEntry>(
             { it.y },
             { it.z },
             { it.x }).thenComparator { a, b -> compareBytes(a.nbt, b.nbt) })
